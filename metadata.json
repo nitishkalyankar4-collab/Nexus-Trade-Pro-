@@ -1,0 +1,7 @@
+{
+  "name": "Nexus Trade Pro",
+  "description": "Institutional-grade cryptocurrency trading analyst powered by Gemini 3 Pro and ICT methodologies.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
