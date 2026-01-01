@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { AppView } from './types';
+import { AppView, TradeSetup } from './types';
 import Sidebar from './components/Sidebar';
 import Terminal from './components/Terminal';
 import AnalysisDisplay from './components/AnalysisDisplay';
+import { TradeSetupCard } from './components/TradeSetupCard';
 import { geminiService } from './services/geminiService';
 import { 
   Upload, 
@@ -18,7 +19,8 @@ import {
   ExternalLink,
   Target,
   ShieldCheck,
-  AlertTriangle
+  AlertTriangle,
+  Zap
 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -27,9 +29,10 @@ export const App: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [sentiment, setSentiment] = useState<{text: string, chunks?: any[]}>({ text: "" });
   const [chatMessage, setChatMessage] = useState("");
-  const [chatHistory, setChatHistory] = useState<Array<{role: string, text: string}>>([]);
+  const [chatHistory, setChatHistory] = useState<Array<{role: string, text?: string, tradeSetup?: TradeSetup}>>([]);
   const [prices, setPrices] = useState({ btc: 0, eth: 0 });
   const [systemLogs, setSystemLogs] = useState<{timestamp: string, message: string, type: 'info'|'success'|'error'|'thinking'}[]>([]);
+  const [chartImage, setChartImage] = useState<string | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -65,11 +68,14 @@ export const App: React.FC = () => {
     addLog(`INGESTING DATA PACKET: ${file.name}`, "info");
     setLoading(true);
     setAnalysisResult("");
+    setChartImage(null); // Reset prev image
     setView(AppView.ANALYSIS);
 
     const reader = new FileReader();
     reader.onloadend = async () => {
-      const base64 = (reader.result as string).split(',')[1];
+      const resultStr = reader.result as string;
+      setChartImage(resultStr);
+      const base64 = resultStr.split(',')[1];
       try {
         addLog("EXECUTING DEEP ICT SCAN...", "thinking");
         const result = await geminiService.analyzeChart(base64);
@@ -115,7 +121,11 @@ export const App: React.FC = () => {
     addLog("TRANSFUSING ADVISORY QUERY...", "thinking");
 
     try {
-      const aiResponse = await geminiService.chat(chatMessage, chatHistory);
+      const historyForApi = chatHistory
+        .filter(msg => msg.text)
+        .map(msg => ({ role: msg.role, text: msg.text || "" }));
+        
+      const aiResponse = await geminiService.chat(chatMessage, historyForApi);
       setChatHistory(prev => [...prev, { role: 'ai', text: aiResponse }]);
       addLog("ADVISORY RESPONSE RECEIVED.", "success");
     } catch (err) {
@@ -123,6 +133,32 @@ export const App: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleGenerateSetup = async () => {
+    setLoading(true);
+    addLog("CALCULATING PROBABILITY MATRIX...", "thinking");
+    
+    const contextMsg = { role: 'user', text: "GENERATE_INSTITUTIONAL_SETUP_PROTOCOL" };
+    setChatHistory(prev => [...prev, contextMsg]);
+
+    try {
+      const recentContext = chatHistory.slice(-3).map(m => m.text).join('\n') + (analysisResult ? `\n\nRecent Analysis: ${analysisResult.slice(0, 500)}` : "");
+      
+      const setup = await geminiService.generateTradeSetup(recentContext);
+      
+      setChatHistory(prev => [...prev, { role: 'ai', tradeSetup: setup }]);
+      addLog("TRADE SETUP GENERATED.", "success");
+    } catch (err) {
+      addLog("SETUP GENERATION FAILED.", "error");
+      setChatHistory(prev => [...prev, { role: 'ai', text: "ERROR: Unable to converge on a high-probability setup at this time." }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTradeExecution = (setup: TradeSetup) => {
+    addLog(`ORDER EXECUTION INITIATED: ${setup.direction} ${setup.asset} [ID:${setup.id}] | ENTRY: ${setup.entryZone} | SL: ${setup.stopLoss}`, 'success');
   };
 
   useEffect(() => {
@@ -136,7 +172,6 @@ export const App: React.FC = () => {
       <Sidebar currentView={view} setView={setView} />
       
       <main className="flex-1 flex flex-col h-full relative overflow-hidden pb-16 md:pb-0">
-        {/* Institutional Header */}
         <header className="h-14 md:h-16 border-b border-slate-800/60 bg-black/80 backdrop-blur-md flex items-center justify-between px-4 md:px-8 z-10 shrink-0">
           <div className="flex items-center gap-2 md:gap-6">
             <h2 className="hidden lg:flex text-[10px] font-black uppercase tracking-[0.4em] text-slate-500 items-center gap-2">
@@ -165,7 +200,6 @@ export const App: React.FC = () => {
           </div>
         </header>
 
-        {/* Tactical Content Area */}
         <div className="flex-1 overflow-y-auto p-4 md:p-10 relative scroll-smooth custom-scrollbar">
           {view === AppView.DASHBOARD && (
             <div className="max-w-7xl mx-auto space-y-6 md:space-y-10 animate-in fade-in duration-700">
@@ -237,7 +271,12 @@ export const App: React.FC = () => {
                   New Scan
                 </button>
               </div>
-              <AnalysisDisplay content={analysisResult} loading={loading} />
+              <AnalysisDisplay 
+                content={analysisResult} 
+                loading={loading} 
+                chartImage={chartImage} 
+                onTradeExecute={handleTradeExecution}
+              />
             </div>
           )}
 
@@ -305,38 +344,54 @@ export const App: React.FC = () => {
                 )}
                 {chatHistory.map((msg, i) => (
                   <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[85%] rounded-2xl p-6 shadow-2xl ${
-                      msg.role === 'user' 
-                        ? 'bg-indigo-600 text-white rounded-tr-none font-bold' 
-                        : 'bg-slate-900 border border-slate-800 text-slate-300 rounded-tl-none font-medium'
-                    }`}>
-                      <p className="whitespace-pre-wrap leading-relaxed text-sm md:text-base">{msg.text}</p>
-                    </div>
+                    {msg.tradeSetup ? (
+                      <TradeSetupCard setup={msg.tradeSetup} onExecute={handleTradeExecution} />
+                    ) : (
+                      <div className={`max-w-[85%] rounded-2xl p-6 shadow-2xl ${
+                        msg.role === 'user' 
+                          ? 'bg-indigo-600 text-white rounded-tr-none font-bold' 
+                          : 'bg-slate-900 border border-slate-800 text-slate-300 rounded-tl-none font-medium'
+                      }`}>
+                        <p className="whitespace-pre-wrap leading-relaxed text-sm md:text-base">{msg.text}</p>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
 
-              <form onSubmit={handleChatSubmit} className="relative mb-6">
-                <input
-                  type="text"
-                  value={chatMessage}
-                  onChange={(e) => setChatMessage(e.target.value)}
-                  placeholder="CONSULT ON INSTITUTIONAL FLOW..."
-                  className="w-full bg-black border-2 border-slate-800 rounded-2xl px-8 py-6 pr-20 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all text-white font-bold placeholder:text-slate-700 tracking-tight"
-                />
-                <button 
-                  type="submit"
-                  disabled={loading || !chatMessage.trim()}
-                  className="absolute right-4 top-4 p-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-xl text-white transition-all shadow-xl active:scale-95"
-                >
-                  <Send size={24} />
-                </button>
-              </form>
+              <div className="relative mb-6">
+                <form onSubmit={handleChatSubmit} className="relative">
+                  <input
+                    type="text"
+                    value={chatMessage}
+                    onChange={(e) => setChatMessage(e.target.value)}
+                    placeholder="CONSULT ON INSTITUTIONAL FLOW..."
+                    className="w-full bg-black border-2 border-slate-800 rounded-2xl px-8 py-6 pr-32 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all text-white font-bold placeholder:text-slate-700 tracking-tight"
+                  />
+                  <div className="absolute right-4 top-4 flex gap-2">
+                    <button 
+                      type="button"
+                      onClick={handleGenerateSetup}
+                      disabled={loading}
+                      className="p-3 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 rounded-xl text-yellow-400 transition-all shadow-xl active:scale-95 border border-slate-700 hover:border-yellow-400/30"
+                      title="Generate Trade Setup"
+                    >
+                      <Zap size={24} />
+                    </button>
+                    <button 
+                      type="submit"
+                      disabled={loading || !chatMessage.trim()}
+                      className="p-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-xl text-white transition-all shadow-xl active:scale-95"
+                    >
+                      <Send size={24} />
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
           )}
         </div>
 
-        {/* Global Status Node */}
         <div className="absolute bottom-20 md:bottom-8 left-1/2 -translate-x-1/2 bg-black border border-slate-800 px-6 py-2.5 rounded-full backdrop-blur-2xl shadow-2xl flex items-center gap-6 text-[10px] z-50">
            <div className="flex items-center gap-2">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,1)]"></div>

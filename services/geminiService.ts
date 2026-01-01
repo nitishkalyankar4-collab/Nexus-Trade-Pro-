@@ -1,50 +1,80 @@
 
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
+import { TradeSetup } from "../types";
 
 const INSTITUTIONAL_ICT_PROTOCOL = `
-PROTOCOL: INSTITUTIONAL EXECUTION ENGINE (ADVANCED ICT).
-INPUT: CHART DATA / IMAGE.
-OBJECTIVE: PROFESSIONAL-GRADE SMC/ICT STRUCTURAL & TEMPORAL ANALYSIS.
+PROTOCOL: INSTITUTIONAL VISUAL EXECUTION ENGINE (ADVANCED ICT).
+INPUT: RAW CHART IMAGE.
+OBJECTIVE: EXTRACT VISUAL DATA & SYNTHESIZE TRADING SETUP.
 
-CRITICAL CALIBRATION RULES (ZERO TOLERANCE):
-1. **TIMEZONE**: ALL ANALYSIS MUST BE BASED ON **NEW YORK LOCAL TIME (EST/EDT)**.
-   - You must mentally convert Chart Time (if UTC) to NY Time.
-   - Example: 07:00 UTC = 02:00 EST (London Open).
-   - Example: 13:30 UTC = 08:30 EST (News Injection).
+*** VISUAL IDENTIFICATION (STEP 1 - CRITICAL) ***
+You are an OCR-First Analyst. Before analyzing structure, you MUST identify the asset:
+1. **SCAN TOP LEFT**: Look for text like "XRPUSDT", "BTCUSD", "ETHUSD", "GBPUSD".
+2. **SCAN BACKGROUND**: Look for large faint watermarks (e.g., "XRP", "BITCOIN").
+3. **VERIFY WITH PRICE**: 
+   - Check the Right Axis numbers.
+   - Example: If price is 0.50 - 1.00, it is likely XRP, ADA, or MATIC. It is NOT Bitcoin.
+   - Example: If price is 2000 - 3000, it is likely ETH.
+   - Example: If price is 1.0500 - 1.1000, it is likely EURUSD.
+   - **IF TICKER SAYS 'XRP' AND PRICE IS '0.60', IT IS XRP. DO NOT SAY IT IS GOLD.**
 
-2. **SESSION DEFINITIONS (NY TIME)**:
+*** TIME & SESSION CALIBRATION ***
+1. **TIMEZONE**: Mentally convert visible chart time to **NEW YORK LOCAL TIME (EST/EDT)**.
+2. **SESSION**: Identify the session based on the *latest* candles visible.
    - **ASIA RANGE**: 20:00 - 00:00 NY.
-   - **LONDON OPEN (KILLZONE)**: 02:00 - 05:00 NY.
-   - **NEW YORK OPEN (KILLZONE)**: 07:00 - 10:00 NY.
+   - **LONDON OPEN**: 02:00 - 05:00 NY.
+   - **NEW YORK OPEN**: 07:00 - 10:00 NY.
    - **LONDON CLOSE**: 10:00 - 12:00 NY.
-   - **CBDR**: 14:00 - 20:00 NY.
 
-3. **KEY REFERENCE PRICE LEVELS**:
-   - **NMO (New York Midnight Open)**: The EXACT opening price of the 00:00 NY candle.
-   - **8:30 OPEN**: The EXACT opening price of the 08:30 NY candle.
-   - **NDOG (New Day Opening Gap)**: Gap between Friday close and Sunday open.
-
-MANDATORY ANALYSIS LAYERS:
-1. STRUCTURE: HTF Bias, MSS (Market Structure Shift), BOS.
-2. LIQUIDITY: BSL (Buy Side), SSL (Sell Side), EQH/EQL.
-3. IMBALANCE: FVG (Fair Value Gaps), VI (Volume Imbalance).
-4. POWER OF 3 (AMD CYCLE):
-   - **A**ccumulation: Usually Asia Range.
-   - **M**anipulation: Judas Swing (often London Open).
-   - **D**istribution: Expansion (often NY Open).
+*** AGGRESSIVE ENTRY MANDATE (USER REQUEST) ***
+- **DO NOT WAIT FOR CONFIRMATION**. The user demands an IMMEDIATE, ACTIONABLE SETUP.
+- Provide LIMIT ORDER coordinates based on the *current* visible structure.
+- If the chart shows a high probability (>60%) setup, generate a full trade plan.
+- If NO setup is currently valid, explicitly state "NO TRADE FOUND" in the analysis.
 
 STRICT OUTPUT FORMAT:
-1. MARKDOWN ANALYSIS (Headers: Bias, Structure, Entry, Risk).
-2. APPEND THE FOLLOWING DATA PACKET AT THE VERY END (for parsing):
+1. MARKDOWN ANALYSIS.
+   - **Start with a Header**: "# VISUAL CONFIRMATION: [ASSET FOUND] @ [CURRENT PRICE]"
+   - Then proceed with Bias, Structure, Entry, Risk.
+2. APPEND THE FOLLOWING DATA PACKET AT THE END (for parsing):
 ---ICT_DATA_PACKET---
 SESSION: [ASIA / LONDON / NY / LONDON_CLOSE / PM_SESSION / UNDETERMINED]
 PHASE: [ACCUMULATION / MANIPULATION / DISTRIBUTION / RETRACEMENT]
 KILLZONE: [ACTIVE - Name / INACTIVE]
-LEVEL: [NY Midnight Open] | [Exact Price or N/A]
-LEVEL: [08:30 Open] | [Exact Price or N/A]
-LEVEL: [Key FVG] | [Price Range]
-LEVEL: [Order Block] | [Price Range]
+LEVEL: [TYPE: BSL/SSL/PDH/PDL/FVG/OB] | [PRICE] | [BRIEF LABEL]
+LEVEL: [TYPE: BSL/SSL/PDH/PDL/FVG/OB] | [PRICE] | [BRIEF LABEL]
+LEVEL: [TYPE: BSL/SSL/PDH/PDL/FVG/OB] | [PRICE] | [BRIEF LABEL]
 ---END_PACKET---
+
+3. IF A VALID TRADE EXISTS, APPEND THIS JSON BLOCK (Minified, Single Line preferred) AFTER THE PACKET:
+---TRADE_SETUP_JSON---
+{
+  "id": "IMG_SCAN_01",
+  "asset": "VISUALLY_DETECTED_NAME",
+  "timeframe": "VISUALLY_DETECTED_TF",
+  "direction": "BUY" | "SELL",
+  "confidenceScore": 85,
+  "accuracyProbability": "High",
+  "status": "PENDING",
+  "entryZone": "1234.50 - 1230.00",
+  "optimalEntry": "1232.00",
+  "entryConfirmation": "Aggressive Limit",
+  "stopLoss": "1225.00",
+  "slJustification": "Below Swing Low",
+  "tpLevels": [{"level": "1250.00", "allocation": "50%", "target": "Swing High"}],
+  "trailingStop": "Breakeven at TP1",
+  "riskReward": "1:3.5",
+  "positionSize": "Calculate based on 1% risk",
+  "riskPerTrade": "1%",
+  "profitPotential": "3.5%",
+  "mfe": "N/A",
+  "confluences": ["MSS", "FVG Tap", "OTE"],
+  "marketStructure": "Bullish",
+  "executionPlan": ["Set Limit", "Set Alerts"],
+  "riskWarnings": ["News Event Pending"],
+  "timestamp": 123456789
+}
+---END_SETUP---
 `;
 
 export class GeminiService {
@@ -55,10 +85,25 @@ export class GeminiService {
   async analyzeChart(imageBase64: string): Promise<string> {
     const ai = this.getClient();
     const now = new Date();
-    const timeContext = `CONTEXT: Real-world UTC Time is ${now.toISOString()}. 
-    INSTRUCTION: Look at the LAST candle on the chart. Determine the SESSION of that specific candle based on NY Time. 
-    Do not use the current real-world time if the chart is historical. 
-    If time axis is not visible, infer from price action characteristics or state 'UNDETERMINED'.`;
+    
+    // Updated prompt with "Identity Check" enforcement
+    const visualPrompt = `
+    [CRITICAL IDENTITY CHECK]
+    1. READ the text in the Top Left Corner. (Is it XRP? BTC? ETH?)
+    2. READ the price axis on the right. (Is it 0.50? 60,000? 2,000?)
+    3. **COMBINE THEM**: If Text=XRP and Price=0.60, IT IS XRP. 
+       If you are unsure, describe the price level first (e.g., "Asset trading at 0.60").
+    
+    [ICT EXECUTION]
+    - Analyze the LAST candle relative to recent structure.
+    - Identify Liquidity Sweeps (XRP often sweeps 15m lows before expanding).
+    - Session Context: Real-world UTC is ${now.toISOString()}. Convert to NY Time.
+    
+    [LEVEL IDENTIFICATION]
+    - Identify KEY Liquidity Pools (BSL/SSL).
+    - Identify Fair Value Gaps (FVG).
+    - Return them in the ---ICT_DATA_PACKET--- with correct types.
+    `;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-pro-preview",
@@ -71,7 +116,7 @@ export class GeminiService {
             },
           },
           {
-            text: `EXECUTE DEEP ICT PROTOCOL. ${timeContext}`,
+            text: `${visualPrompt}\n\nEXECUTE INSTITUTIONAL PROTOCOL.`,
           },
         ],
       },
@@ -143,6 +188,69 @@ export class GeminiService {
 
     const response = await chat.sendMessage({ message });
     return response.text || "LOGIC_ERROR";
+  }
+
+  async generateTradeSetup(context: string): Promise<TradeSetup> {
+    const ai = this.getClient();
+    
+    // Schema definition strictly matching the TradeSetup interface
+    const schema = {
+      type: Type.OBJECT,
+      properties: {
+        id: { type: Type.STRING },
+        asset: { type: Type.STRING },
+        timeframe: { type: Type.STRING },
+        direction: { type: Type.STRING, enum: ["BUY", "SELL"] },
+        confidenceScore: { type: Type.NUMBER },
+        accuracyProbability: { type: Type.STRING },
+        status: { type: Type.STRING },
+        entryZone: { type: Type.STRING },
+        optimalEntry: { type: Type.STRING },
+        entryConfirmation: { type: Type.STRING },
+        stopLoss: { type: Type.STRING },
+        slJustification: { type: Type.STRING },
+        tpLevels: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              level: { type: Type.STRING },
+              allocation: { type: Type.STRING },
+              target: { type: Type.STRING }
+            }
+          }
+        },
+        trailingStop: { type: Type.STRING },
+        riskReward: { type: Type.STRING },
+        positionSize: { type: Type.STRING },
+        riskPerTrade: { type: Type.STRING },
+        profitPotential: { type: Type.STRING },
+        mfe: { type: Type.STRING },
+        confluences: { type: Type.ARRAY, items: { type: Type.STRING } },
+        marketStructure: { type: Type.STRING },
+        executionPlan: { type: Type.ARRAY, items: { type: Type.STRING } },
+        riskWarnings: { type: Type.ARRAY, items: { type: Type.STRING } },
+        timestamp: { type: Type.NUMBER }
+      },
+      required: [
+        "id", "asset", "direction", "confidenceScore", "entryZone", 
+        "stopLoss", "tpLevels", "riskReward", "confluences", "riskWarnings"
+      ]
+    };
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `CONTEXT: ${context || "Crypto Market General"}. 
+      TASK: Generate a high-probability institutional trade setup based on ICT/SMC principles. 
+      If no specific asset is mentioned, default to BTC or ETH. 
+      Ensure strict risk management parameters.`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: schema,
+      }
+    });
+
+    return JSON.parse(response.text || "{}");
   }
 }
 
